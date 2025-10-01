@@ -1,403 +1,303 @@
-Here’s a polished, drop-in `README.md` you can paste at the root of your repo. Tweak names/ports as you wish.
+# E‑Restaurant Web API
 
-```markdown
-# ERestaurant API
+A multi‑tenant restaurant backend for menus, combos, orders, and add‑ons — with built‑in localization (Arabic/English), clean error handling, and a developer‑friendly architecture (.NET + EF Core).
 
-Multi-tenant restaurant API for **Materials**, **Additional Materials**, **Combos**, and **Orders** built with **ASP.NET Core (.NET 8)** and **EF Core**.  
-It enforces tenant isolation (headers-based), provides rich seed data, DB-level constraints, auto-included navigations, and consistent error payloads.
+> This single README serves **two audiences**:
+>
+> 1) **Clients / Stakeholders** — overview, capabilities, and how to use the API at a high level.  
+> 2) **Developers** — detailed setup, architecture, and conventions (the **Developer Guide** is further down).
 
 ---
 
 ## Table of Contents
-- [Features](#features)
-- [Project Structure](#project-structure)
-- [Requirements](#requirements)
-- [Configuration](#configuration)
-- [Run](#run)
-- [Database & Seeding](#database--seeding)
-- [Headers & Localization](#headers--localization)
-- [API Overview](#api-overview)
-- [Examples](#examples)
-- [Error Responses](#error-responses)
-- [Troubleshooting](#troubleshooting)
-- [Notes](#notes)
-- [License](#license)
+
+- [Client Guide (Overview)](#client-guide-overview)
+  - [What is this project?](#what-is-this-project)
+  - [Key Features](#key-features)
+  - [How to Access](#how-to-access)
+  - [Important Headers](#important-headers)
+  - [Typical Flows](#typical-flows)
+  - [Error Format](#error-format)
+  - [Service Levels \& Notes](#service-levels--notes)
+  - [Contact \& Support](#contact--support)
+- [Developer Guide (Detailed)](#developer-guide-detailed)
+  - [Tech Stack](#tech-stack)
+  - [Solution Structure](#solution-structure)
+  - [Prerequisites](#prerequisites)
+  - [Configuration](#configuration)
+  - [Run the API](#run-the-api)
+  - [Database \& Migrations](#database--migrations)
+  - [Seeding](#seeding)
+  - [Tenancy Model](#tenancy-model)
+  - [Auto‑Loading (AutoInclude)](#auto-loading-autoinclude)
+  - [Localization](#localization)
+  - [Error Handling](#error-handling)
+  - [Pagination \& Sorting](#pagination--sorting)
+  - [Testing](#testing)
+  - [Coding Standards \& Conventions](#coding-standards--conventions)
+  - [CI/CD (Optional)](#cicd-optional)
+  - [Troubleshooting](#troubleshooting)
+  - [Roadmap](#roadmap)
+  - [License](#license)
 
 ---
 
-## Features
-- **Multi-tenancy isolation**
-  - Middleware reads `X-Tenant-Id` and applies a global query filter (`TenantId == header && IsDeleted == false`).
-  - Composite foreign keys `{Id, TenantId}` prevent cross-tenant references at the DB level.
-- **Two-language responses**
-  - `X-Accept-Language: en | ar` affects mapper output for names/text.
-- **Seed data (per tenant)**
-  - 5 tenants out-of-the-box: Burgers, Pizza, Shawarma, Coffee&Tea, Desserts.
-  - Deterministic GUIDs for repeatable seeding.
-- **AutoInclude navigations**
-  - Core navigation properties are eager-loaded by default where helpful.
-- **DB constraints**
-  - Prices > 0, Quantities > 0, and Tax ∈ [0,1] enforced at the database.
-- **ProblemDetails errors**
-  - Consistent error envelopes for validation, FK conflicts, and server errors.
+## Client Guide (Overview)
 
----
+### What is this project?
+**E‑Restaurant Web API** is a backend service for restaurant operations. It powers mobile apps or web dashboards to:
+- Browse materials (ingredients/items), combos (meals made of materials), and optional add‑ons (e.g., sauces).
+- Place and track orders.
+- Work across **multiple tenants (restaurants/brands)** cleanly and safely.
 
-## Project Structure
+The API is **language‑aware**:
+- Content (like item names) responds in **Arabic** when `Accept-Language: ar` is sent, and **English** when `Accept-Language: en` is sent.
+
+### Key Features
+- **Multi‑tenant** isolation with per‑tenant data guards.
+- **Menu & Combos**: materials, combos, and add‑ons.
+- **Orders** with order items and add‑ons on each item.
+- **Localization** at the DTO level (Arabic/English names).
+- **Consistent errors** via RFC‑7807 `ProblemDetails`.
+- **Swagger** for live API documentation.
+- **Seed demo data** for quick evaluation.
+
+### How to Access
+- Run the API locally (see **Developer Guide**).  
+- Once running, open: `http://localhost:5000/swagger` (or the port printed in the console) to explore endpoints interactively.
+
+> If you received a hosted/staging URL from us, use that instead of localhost.
+
+### Important Headers
+| Header | Required | Purpose | Example |
+|-------|---------|---------|---------|
+| `X-Tenant-Id` | ✅ Yes | Selects which tenant (restaurant) your requests target. | `X-Tenant-Id: 1` |
+| `Accept-Language` | Optional | Localizes names in responses. Supports `ar` or `en`. | `Accept-Language: ar` |
+
+### Typical Flows
+1) **List materials** (ingredients/items):  
+   `GET /api/materials`
+2) **View combos** (meals composed of materials):  
+   `GET /api/combos`
+3) **Place an order**:  
+   `POST /api/orders` with items and optional add‑ons.
+4) **Get order details**:  
+   `GET /api/orders/{id}`
+
+> Use **Swagger** to try these with your `X-Tenant-Id` and optional `Accept-Language` headers.
+
+### Error Format
+Errors follow **ProblemDetails** (RFC‑7807). Example:
+```json
+{
+  "type": "https://http.dev/errors/validation",
+  "title": "Validation Failed",
+  "status": 400,
+  "detail": "One or more validation errors occurred.",
+  "errors": {
+    "Items[0].Quantity": ["Quantity must be at least 1"]
+  }
+}
 ```
 
-ERestaurant.sln
-│
-├─ ERestaurant.API/                 # Web API (controllers, middleware, swagger)
-│  └─ Controllers/
-│
-├─ ERestaurant.Application/         # Use cases, DTOs, services
-│  ├─ DTOs/
-│  └─ Services/
-│
-├─ ERestaurant.Domain/              # Entities, enums, base classes
-│  ├─ Entity/
-│  └─ Enums/
-│
-└─ ERestaurant.Infrastructure/      # DbContext, Repositories, Seed, Auditing
-├─ DatabaseContext/
-├─ HelperClass/
-└─ Repositories/
+### Service Levels & Notes
+- **Performance**: Optimized queries and auto‑loading for common navigation properties.
+- **Isolation**: One tenant cannot read/modify another tenant’s data.
+- **Localization**: Names switch language based on `Accept-Language`.
+- **Security**: See Developer Guide for authentication/authorization options (varies by deployment).
 
-````
+### Contact & Support
+- For access, demos, or questions, contact your project representative.
 
 ---
 
-## Requirements
-- **.NET 8 SDK**
-- **SQL Server** (LocalDB / Express / Developer / Azure SQL)
-- (Optional) EF Core CLI tools:
+## Developer Guide (Detailed)
+
+> Everything below is for engineers who will build/extend/deploy the API.
+
+### Tech Stack
+- **.NET 8** (or later), ASP.NET Core Web API
+- **Entity Framework Core** (SQL Server)
+- **AutoMapper** for mapping and localization shaping
+- **Hellang.Middleware.ProblemDetails** for consistent error responses
+- **Swagger / Swashbuckle** for API docs
+- Optional: **JWT/Identity** if authentication is enabled in your deployment
+
+### Solution Structure
+Typical layout (adjust to your repo):
+```
+ERestaurant.sln
+src/
+  Api/                # Controllers, DI, middlewares, Swagger
+  Application/        # DTOs, services, AutoMapper profiles
+  Domain/             # Entities, enums, domain logic
+  Infrastructure/     # DbContext, EF configs, repositories/UoW, seed
+  Testing/            # Unit/integration tests
+docs/                 # Diagrams, API docs, etc.
+```
+
+### Prerequisites
+- .NET 8 SDK or later
+- SQL Server (Express/Developer/LocalDB). Ensure **SQL Server Browser** is running for named instances.
+- EF Core CLI tools:  
   ```bash
   dotnet tool install --global dotnet-ef
-````
+  ```
 
----
-
-## Configuration
-
-Update `appsettings.Development.json`:
+### Configuration
+Create **`appsettings.Development.json`** in `src/Api` (or use env vars):
 
 ```json
 {
   "ConnectionStrings": {
-    "DefaultConnection": "Server=(localdb)\\MSSQLLocalDB;Database=ERestaurant;Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True"
+    "ERestaurantDb": "Server=localhost;Database=ERestaurant;Trusted_Connection=True;TrustServerCertificate=True"
   },
-  "App": {
-    "RecreateDatabaseOnStart": false
+  "ErrorHandling": {
+    "ExposeExceptionDetails": true
   },
-  "Logging": { "LogLevel": { "Default": "Information" } }
+  "Localization": {
+    "SupportedCultures": [ "en", "ar" ],
+    "DefaultCulture": "en"
+  },
+  "Tenancy": {
+    "Header": "X-Tenant-Id",
+    "DefaultTenantId": 1
+  },
+  "Swagger": {
+    "Enable": true
+  }
 }
 ```
 
-**Port / URLs**
-Check `Properties/launchSettings.json`:
+> **Production**: set a strong SQL connection string, disable `ExposeExceptionDetails`, and restrict Swagger as needed.
 
-```json
-"applicationUrl": "https://localhost:7034;http://localhost:5034"
-```
-
-Use the same port in your requests (examples below use `7034`).
-
----
-
-## Run
-
+### Run the API
+From the repo root (adjust paths if different):
 ```bash
 dotnet restore
 dotnet build
-dotnet run --project ERestaurant.API
+
+# Apply migrations then run
+dotnet ef database update --project src/Infrastructure --startup-project src/Api
+dotnet run --project src/Api
 ```
+Open the printed URL (e.g., `https://localhost:7043/swagger`).
 
-Swagger UI:
-`https://localhost:7034/swagger`
-
----
-
-## Database & Seeding
-
-There are two dev flows:
-
-### A) Run migrations (recommended)
-
+### Database & Migrations
+Create a new migration when changing entities/config:
 ```bash
-dotnet ef database update --project ERestaurant.Infrastructure --startup-project ERestaurant.API
+dotnet ef migrations add <Name> \
+  --project src/Infrastructure \
+  --startup-project src/Api
+dotnet ef database update --project src/Infrastructure --startup-project src/Api
 ```
 
-This creates the schema and applies **SeedData** automatically from `OnModelCreating`.
-
-### B) Recreate DB each run (dev-only)
-
-Set `"App:RecreateDatabaseOnStart": true` and call a dev helper on startup (example):
-
-```csharp
-// Program.cs (Development only)
-if (app.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("App:RecreateDatabaseOnStart"))
-{
-    using var scope = app.Services.CreateScope();
-    var db = scope.ServiceProvider.GetRequiredService<ERestaurantDbContext>();
-    await db.Database.EnsureDeletedAsync();
-    await db.Database.MigrateAsync();
-}
-```
-
-> **Warning**: Use only in development; it **deletes** the DB on each run.
-
----
-
-## Headers & Localization
-
-Every request **must** include:
-
-```
-X-Tenant-Id: 1 | 2 | 3 | 4 | 5
-X-Accept-Language: en | ar
-```
-
-* Tenant middleware rejects missing/invalid `X-Tenant-Id`.
-* The mapper uses `X-Accept-Language` to choose Arabic vs English fields where applicable.
-
----
-
-## API Overview
-
-Base URL (dev): `https://localhost:7034`
-
-### Material
-
-* `GET    /API/Material`
-* `GET    /API/Material/{id}`
-* `POST   /API/Material`
-* `PUT    /API/Material/{id}`
-* `DELETE /API/Material/{id}`
-
-### AdditionalMaterial
-
-* `GET    /API/AdditionalMaterial`
-* `GET    /API/AdditionalMaterial/{id}`
-* `POST   /API/AdditionalMaterial`
-* `PUT    /API/AdditionalMaterial/{id}`
-* `DELETE /API/AdditionalMaterial/{id}`
-
-### Combo
-
-* `GET    /API/Combo`
-* `GET    /API/Combo/WithAddition`
-* `GET    /API/Combo/{id}`
-* `POST   /API/Combo`
-* `PUT    /API/Combo/{id}`
-* `DELETE /API/Combo/{id}`
-
-**Combo Materials (within a Combo)**
-
-* `POST   /API/Combo/{comboId}/Material/{materialId}?quantity=1`
-* `PUT    /API/Combo/{comboId}/Material/{materialId}?quantity=2`
-* `DELETE /API/Combo/{comboId}/Material/{materialId}`
-
-### Order
-
-* `GET    /API/Order`
-* `GET    /API/Order/{id}`
-* `POST   /API/Order`
-* `PUT    /API/Order/{id}`
-* `DELETE /API/Order/{id}`
-
-**Order Items (within an Order)**
-
-* `POST   /API/Order/{orderId}/Item/Material/{materialId}?quantity=1`
-* `POST   /API/Order/{orderId}/Item/Combo/{comboId}?quantity=1`
-* `POST   /API/Order/{orderId}/Item/Additional/{additionalMaterialId}?quantity=1`
-* `DELETE /API/Order/{orderId}/Item/OrderItem/{referenceId}`
-
----
-
-## Examples
-
-> Replace `{{PORT}}` with your dev port (e.g., `7034`).
-> Replace `{{TENANT}}` with a valid tenant (1–5).
-> Use `search` endpoints to fetch IDs from seed data (e.g., search “Brioche Bun” under tenant 1).
-
-### List materials (tenant 1, English)
-
-```bash
-curl -k -H "X-Tenant-Id: 1" -H "X-Accept-Language: en" \
-"https://localhost:{{PORT}}/API/Material?pageNumber=1&pageSize=10"
-```
-
-### Get material by name (search like)
-
-```bash
-curl -k -H "X-Tenant-Id: 1" -H "X-Accept-Language: en" \
-"https://localhost:{{PORT}}/API/Material?searchNameQuery=Brioche"
-```
-
-### Create combo (valid, tenant 1)
-
-```bash
-curl -k -X POST "https://localhost:{{PORT}}/API/Combo" \
--H "Content-Type: application/json" \
--H "X-Tenant-Id: 1" -H "X-Accept-Language: en" \
--d '{
-  "nameEn": "Classic Burger Meal",
-  "nameAr": "وجبة برجر كلاسيك",
-  "price": 5.250,
-  "tax": 0.160,
-  "imageUrl": "https://www.example.com/1/combo/classic-burger-meal",
-  "isActive": true,
-  "material": [
-    { "materialId": "<BriocheBunId_T1>",   "quantity": 1 },
-    { "materialId": "<BeefPattyId_T1>",    "quantity": 1 },
-    { "materialId": "<CheddarSliceId_T1>", "quantity": 1 },
-    { "materialId": "<LettuceId_T1>",      "quantity": 25 },
-    { "materialId": "<TomatoId_T1>",       "quantity": 30 },
-    { "materialId": "<FriesId_T1>",        "quantity": 120 }
-  ]
-}'
-```
-
-### Create combo (error: material is from another tenant)
-
-```bash
-curl -k -X POST "https://localhost:{{PORT}}/API/Combo" \
--H "Content-Type: application/json" \
--H "X-Tenant-Id: 1" -H "X-Accept-Language: en" \
--d '{
-  "nameEn": "Wrong Tenant Combo",
-  "nameAr": "كومبو مستأجر آخر",
-  "price": 3.000,
-  "tax": 0.160,
-  "imageUrl": "https://www.example.com/1/combo/wrong-tenant",
-  "isActive": true,
-  "material": [
-    { "materialId": "<MozzarellaId_T2>", "quantity": 1 }  // Tenant 2 ID under Tenant 1
-  ]
-}'
-```
-
-### Add material to order (valid)
-
-```bash
-curl -k -X POST \
-"https://localhost:{{PORT}}/API/Order/<OrderId_T1>/Item/Material/<MaterialId_T1>?quantity=2" \
--H "X-Tenant-Id: 1" -H "X-Accept-Language: en"
-```
-
-### Add material to order (error: negative quantity)
-
-```bash
-curl -k -X POST \
-"https://localhost:{{PORT}}/API/Order/<OrderId_T1>/Item/Material/<MaterialId_T1>?quantity=-5" \
--H "X-Tenant-Id: 1" -H "X-Accept-Language: en"
-```
-
-### Add combo/additional from **different** tenant (expect FK/validation error)
-
-```bash
-# Combo from tenant 2 into tenant 1 order → error
-curl -k -X POST \
-"https://localhost:{{PORT}}/API/Order/<OrderId_T1>/Item/Combo/<ComboId_T2>?quantity=1" \
--H "X-Tenant-Id: 1" -H "X-Accept-Language: en"
-
-# Additional material from tenant 3 into tenant 1 order → error
-curl -k -X POST \
-"https://localhost:{{PORT}}/API/Order/<OrderId_T1>/Item/Additional/<AdditionalId_T3>?quantity=1" \
--H "X-Tenant-Id: 1" -H "X-Accept-Language: en"
-```
-
----
-
-## Error Responses
-
-The API returns **ProblemDetails** style payloads. Typical examples:
-
-**Validation (400)**
-
-```json
-{
-  "title": "One or more validation errors occurred.",
-  "status": 400,
-  "errors": {
-    "quantity": ["Quantity must be greater than 0."]
-  },
-  "traceId": "..."
-}
-```
-
-**Foreign key conflict (409)**
-
-```json
-{
-  "title": "Database Update Error",
-  "status": 409,
-  "detail": "The INSERT statement conflicted with the FOREIGN KEY constraint 'FK_ComboMaterial_Material_MaterialId_TenantId'...",
-  "traceId": "..."
-}
-```
-
-**Not found (404)**
-
-```json
-{
-  "title": "Not Found",
-  "status": 404,
-  "detail": "material not found",
-  "traceId": "..."
-}
-```
-
----
-
-## Troubleshooting
-
-### “Cannot be tracked because another instance with the same key is already being tracked”
-
-* Don’t attach full graphs with tracked duplicates. Update only the **aggregate root** (e.g., `Order`) and **set only the FK IDs** for children.
-* If you assembled an in-memory graph for updating, **null** navigation properties and keep only `...Id` values before calling `Update`.
-* Prefer `Query(asNoTracking: true)` for reads; then attach only what you modify.
-
-### Cross-tenant errors (409)
-
-* Ensure `X-Tenant-Id` matches all referenced entities (composite FKs enforce `{Id, TenantId}`).
-* Don’t mix IDs from other tenants in create/update calls.
-
-### Negative or zero values rejected
-
-* DB **CHECK CONSTRAINTS** deny negative or zero quantities/prices, and tax outside `[0,1]`.
-
-### Port mismatch
-
-* Align requests with `launchSettings.json` `applicationUrl` or run with:
-
+**Reset DB (Dev only)** — choose one:
+- CLI reset:
   ```bash
-  dotnet run --project ERestaurant.API --urls "https://localhost:7034"
+  dotnet ef database drop -f --project src/Infrastructure --startup-project src/Api
+  dotnet ef database update --project src/Infrastructure --startup-project src/Api
+  ```
+- Or guarded code path (Development only):
+  ```csharp
+  // in Program.cs during Development
+  if (app.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("DevOptions:ResetDatabase"))
+  {
+      using var scope = app.Services.CreateScope();
+      var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+      db.Database.EnsureDeleted();
+      db.Database.EnsureCreated();
+      SeedData.Apply(scope.ServiceProvider); // if you separate seeding logic
+  }
   ```
 
----
-
-## Notes
-
-* AutoInclude navigations are configured for common reads (e.g., `Order -> OrderItem`, `Combo -> ComboMaterial`).
-* Seed data themes per tenant:
-
-  1. Burgers
-  2. Pizza
-  3. Shawarma
-  4. Coffee&Tea
-  5. Desserts
-
-Use name searches to fetch IDs you want to reference in payloads.
-
----
-
-## License
-
-Add your license here (MIT, Apache-2.0, etc.).
-
+### Seeding
+A seed routine creates demo tenants and data, e.g.:
+```csharp
+Tenants: (1, "Burgers"), (2, "Pizza"), (3, "Shawarma"), (4, "Coffee&Tea"), (5, "Desserts")
 ```
+Materials, combos, and add‑ons are generated per tenant with audit fields (`CreatedBy`, `CreatedDate`, etc.).  
+Enable/disable seeding via config or environment.
 
-want me to include exact sample IDs from your seed (e.g., “Brioche Bun” under tenant 1) directly in the examples? I can add a “Known IDs” section to the README.
+### Tenancy Model
+- **Header**: `X-Tenant-Id` identifies the active tenant.
+- **Isolation**: Entities use `TenantId` and (optionally) alternate keys per entity, e.g.:
+  ```csharp
+  modelBuilder.Entity<Material>().HasAlternateKey(e => new { e.TenantId, e.Id });
+  modelBuilder.Entity<Combo>().HasAlternateKey(e => new { e.TenantId, e.Id });
+  modelBuilder.Entity<AdditionalMaterial>().HasAlternateKey(e => new { e.TenantId, e.Id });
+  ```
+- **Global query filter** applies the current tenant to all queries. A `ITenantProvider` reads the header and stores the `TenantId` for the current request scope.
+- **Repository pattern** may stack an extra guard to ensure `TenantId` is always set on inserts/updates.
+
+### Auto‑Loading (AutoInclude)
+Common navigations are auto‑included through a specialized DbContext (or model config):
+```csharp
+modelBuilder.Entity<Combo>().Navigation(x => x.ComboMaterial).AutoInclude();
+modelBuilder.Entity<ComboMaterial>().Navigation(x => x.Material).AutoInclude();
+
+modelBuilder.Entity<Order>().Navigation(x => x.OrderItem).AutoInclude();
+modelBuilder.Entity<OrderItem>().Navigation(x => x.Material).AutoInclude();
+modelBuilder.Entity<OrderItem>().Navigation(x => x.Combo).AutoInclude();
+modelBuilder.Entity<OrderItem>().Navigation(x => x.AdditionalMaterial).AutoInclude();
 ```
+Use this judiciously to balance convenience and performance.
+
+### Localization
+- Accepts `Accept-Language: ar` or `en`.
+- **AutoMapper** projects entities to DTOs using the language flag, e.g. passing `Items["isArabic"]` into mapping:
+  ```csharp
+  var dtos = _mapper.ProjectTo<ComboReturnDTO>(query, new { isArabic = lang.IsArabic });
+  ```
+- Profiles map `Name` from `NameAr` if Arabic, or `NameEn` if English.
+- Register `RequestLocalizationOptions` in `Program.cs` with `SupportedCultures` = `[ "en", "ar" ]`.
+
+### Error Handling
+- Uses **Hellang.Middleware.ProblemDetails** to map exceptions to standard JSON:
+  - `NotFoundException` → 404
+  - `ValidationException` → 400 with `errors` dictionary
+  - Others → 500 (hide details outside Development)
+- Customize in `ProblemDetailsConfig` (maps, links, titles).
+
+### Pagination & Sorting
+- Endpoints return a `X-Pagination` header (JSON) for page/size/total when applicable.
+- Query params: `page`, `pageSize`, `sort`, `filter` (pattern varies by endpoint).
+- Keep responses lean and consistent.
+
+### Testing
+- **Unit tests** for services/mappers.
+- **Integration tests** boot the API with in‑memory or test SQL DB.
+- Seed a minimal dataset per test to avoid cross‑test coupling.
+
+### Coding Standards & Conventions
+- **C#/.NET Naming**: PascalCase for types/methods, camelCase for locals, `I` prefix for interfaces, `EnumMember` in PascalCase, DTOs suffixed `Dto` (or `DTO` consistently).
+- **Projects**:
+  - `ERestaurant.Api` — web layer only (controllers, DI, middlewares)
+  - `ERestaurant.Application` — DTOs, services, AutoMapper
+  - `ERestaurant.Domain` — entities/enums/rules
+  - `ERestaurant.Infrastructure` — EF Core, repos/UoW, Seed
+- **Exception flow**: throw domain/app exceptions; middleware maps to ProblemDetails.
+- **Git**: feature branches, PR reviews, conventional commits (optional).
+
+### CI/CD (Optional)
+- Build, test, and publish Docker image per commit.
+- Run EF migrations at startup via an init container or migration job.
+- Promote through DEV → UAT → PROD with environment‑specific config.
+
+### Troubleshooting
+- **Swagger not loading**: ensure `Swagger.Enable` is true for the environment, check HTTPS URLs.
+- **SQL connectivity**: verify instance name, `TrustServerCertificate=True` for dev, ensure SQL Browser service is running.
+- **`AutoMapperMappingException`**: a profile may be missing; confirm the profile is registered and any `Items["isArabic"]` flag is passed during `ProjectTo`.
+- **Tenant data looks mixed**: confirm `X-Tenant-Id` header is set on every request; verify global query filter is active.
+
+### Roadmap
+- Authentication/Authorization (JWT + roles).
+- Audit logs.
+- Rate limiting.
+- Caching for menu endpoints.
+- Webhooks for order events.
+
+### License
+Proprietary — internal demo and client evaluation. Contact the owner for licensing terms.
+
+---
